@@ -9,11 +9,12 @@ from honest_ear.config import Settings
 from honest_ear.llm import (
     LLMRequestError,
     _extract_chat_completion_content,
+    _normalize_correction_response,
     _request_correction_via_ark_sdk,
     _request_correction_via_lm_studio,
     request_correction,
 )
-from honest_ear.schemas import CorrectionResponse, DiffSpan, FusionResult
+from honest_ear.schemas import CorrectionItem, CorrectionResponse, DiffSpan, FusionResult
 
 
 def _build_fusion_result() -> FusionResult:
@@ -224,6 +225,9 @@ def test_ark_sdk_request_sends_reasoning_effort(monkeypatch) -> None:
     result = _request_correction_via_ark_sdk(_build_fusion_result(), "accuracy", settings)
 
     assert result.reply.startswith("Nice.")
+    assert result.should_show_correction is True
+    assert result.corrections[0].wrong == "dont"
+    assert result.corrections[0].right == "doesn't"
     assert captured_request["client_kwargs"]["base_url"] == "https://ark-cn-beijing.bytedance.net/api/v3"
     assert captured_request["client_kwargs"]["api_key"] == "demo"
     assert captured_request["model"] == "ep-demo"
@@ -288,6 +292,9 @@ def test_lm_studio_request_omits_json_object_response_format(monkeypatch) -> Non
     result = _request_correction_via_lm_studio(_build_fusion_result(), "accuracy", settings)
 
     assert result.reply.startswith("Nice job.")
+    assert result.should_show_correction is True
+    assert result.corrections[0].wrong == "dont"
+    assert result.corrections[0].right == "doesn't"
     assert captured_request["url"] == "http://127.0.0.1:1234/v1/chat/completions"
     assert "Authorization" not in captured_request["headers"]
     assert captured_request["json"]["stream"] is False
@@ -345,3 +352,91 @@ def test_lm_studio_failure_is_wrapped(monkeypatch) -> None:
 
     with pytest.raises(LLMRequestError, match="LM Studio request failed"):
         _request_correction_via_lm_studio(_build_fusion_result(), "accuracy", settings)
+
+
+def test_normalize_correction_response_filters_surface_only_items() -> None:
+    """Ensures capitalization or spelling-like cleanup is not shown as learner correction."""
+
+    fusion = FusionResult(
+        faithful_text="hallo hallo can you teach my english",
+        intended_text="hello hello can you teach my English",
+        faithful_confidence=0.99,
+        intended_confidence=0.74,
+        diff_spans=[
+            DiffSpan(
+                faithful="hallo hallo",
+                intended="hello hello",
+                start_ms=0,
+                end_ms=120,
+                confidence=0.8,
+                reason="token_mismatch",
+            ),
+            DiffSpan(
+                faithful="english",
+                intended="English",
+                start_ms=121,
+                end_ms=180,
+                confidence=0.9,
+                reason="token_mismatch",
+            ),
+        ],
+        should_correct=True,
+        gating_reason="stable_diff_detected",
+    )
+    response = CorrectionResponse(
+        reply="Hello! I'd be happy to help you with your English.",
+        should_show_correction=True,
+        corrections=[
+            CorrectionItem(
+                wrong="english",
+                right="English",
+                why="Names of languages are proper nouns.",
+                confidence=0.8,
+            ),
+            CorrectionItem(
+                wrong="hallo",
+                right="hello",
+                why="Hello is the standard spelling.",
+                confidence=0.7,
+            ),
+        ],
+        faithful_text=fusion.faithful_text,
+        intended_text=fusion.intended_text,
+        naturalness_score=80,
+        mode="accuracy",
+        meta={"decision_reason": "surface_only"},
+    )
+
+    normalized = _normalize_correction_response(fusion, response)
+
+    assert normalized.should_show_correction is False
+    assert normalized.corrections == []
+
+
+def test_normalize_correction_response_keeps_grammar_items() -> None:
+    """Ensures real grammar fixes (e.g. dont->doesn't) are preserved for the learner."""
+
+    fusion = _build_fusion_result()
+    response = CorrectionResponse(
+        reply="Nice. What fruit do you like most?",
+        should_show_correction=True,
+        corrections=[
+            CorrectionItem(
+                wrong="dont",
+                right="doesn't",
+                why="Use doesn't for he/she/it in the present simple.",
+                confidence=0.9,
+            )
+        ],
+        faithful_text=fusion.faithful_text,
+        intended_text=fusion.intended_text,
+        naturalness_score=90,
+        mode="accuracy",
+        meta={"decision_reason": "grammar"},
+    )
+
+    normalized = _normalize_correction_response(fusion, response)
+
+    assert normalized.should_show_correction is True
+    assert normalized.corrections[0].wrong == "dont"
+    assert normalized.corrections[0].right == "doesn't"

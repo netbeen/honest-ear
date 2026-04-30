@@ -4,6 +4,8 @@ const faithfulText = document.getElementById("faithfulText");
 const faithfulMeta = document.getElementById("faithfulMeta");
 const intendedText = document.getElementById("intendedText");
 const intendedMeta = document.getElementById("intendedMeta");
+const correctionText = document.getElementById("correctionText");
+const correctionMeta = document.getElementById("correctionMeta");
 const replyText = document.getElementById("replyText");
 const replyMeta = document.getElementById("replyMeta");
 const replayButton = document.getElementById("replayButton");
@@ -29,6 +31,10 @@ function setResult(result) {
   intendedText.textContent = result.intended_asr?.text || "暂无结果";
   intendedMeta.textContent = `置信度：${formatConfidence(result.intended_asr?.confidence)}`;
 
+  const renderedCorrections = formatCorrections(result.llm?.corrections || []);
+  correctionText.textContent = renderedCorrections.text;
+  correctionMeta.textContent = renderedCorrections.meta;
+
   replyText.textContent = result.llm?.reply || "暂无结果";
   const ttsReady = result.tts_audio_url ? "已生成" : "未生成";
   replyMeta.textContent = `是否建议纠错：${result.fusion?.should_correct ? "是" : "否"} | 回复语音：${ttsReady}`;
@@ -39,6 +45,30 @@ function formatConfidence(value) {
     return "-";
   }
   return value.toFixed(2);
+}
+
+/**
+ * Formats structured correction items into readable UI text and metadata.
+ */
+function formatCorrections(corrections) {
+  if (!Array.isArray(corrections) || corrections.length === 0) {
+    return {
+      text: "本轮没有明确的语法纠错。",
+      meta: "纠错条目：0",
+    };
+  }
+
+  const lines = corrections.map((item, index) => {
+    const wrong = item?.wrong || "-";
+    const right = item?.right || "-";
+    const why = item?.why || "未提供原因";
+    return `${index + 1}. ${wrong} -> ${right}\n原因：${why}`;
+  });
+
+  return {
+    text: lines.join("\n\n"),
+    meta: `纠错条目：${corrections.length}`,
+  };
 }
 
 function mergeChunks(chunks) {
