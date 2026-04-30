@@ -73,6 +73,20 @@ function downsampleBuffer(buffer, inputRate, outputRate) {
   return result;
 }
 
+async function readErrorMessage(response) {
+  try {
+    const payload = await response.json();
+    if (payload && typeof payload.detail === "string" && payload.detail.trim()) {
+      return payload.detail.trim();
+    }
+  } catch (_error) {
+    // Ignore JSON parse errors and fall back to plain text below.
+  }
+
+  const fallbackText = await response.text();
+  return fallbackText.trim() || `请求失败，HTTP ${response.status}`;
+}
+
 function encodeWav(samples, outputRate) {
   const bytesPerSample = 2;
   const blockAlign = bytesPerSample;
@@ -172,7 +186,7 @@ async function stopRecording() {
     });
 
     if (!response.ok) {
-      throw new Error(await response.text());
+      throw new Error(await readErrorMessage(response));
     }
 
     const result = await response.json();
@@ -180,7 +194,7 @@ async function stopRecording() {
     setStatus("分析完成，可以继续长按录音");
   } catch (error) {
     console.error(error);
-    setStatus("分析失败，请确认模型依赖和 LLM 服务已启动");
+    setStatus(`分析失败：${error.message}`);
   } finally {
     pcmChunks = [];
     mediaStream = null;

@@ -8,7 +8,7 @@ AI 英语口语陪练原型。
 
 - 同一段音频并行跑双通道 ASR
 - 本地做 diff 和置信度融合
-- 调用 Ark `responses` 接口输出结构化纠错结果
+- 调用 Ark `responses` 或 `chat/completions` 接口输出结构化纠错结果
 - 展示忠实文案、理解文案和回复文案
 
 产品目标仍然是 macOS 原生应用，但在 Tauri 壳子尚未搭建完成前，当前版本先提供一个浏览器界面的录音验证页，方便快速测试完整链路。
@@ -25,7 +25,7 @@ AI 英语口语陪练原型。
 - 忠实通道：`wav2vec2`，不接语言模型，尽量保留原始表达
 - 理解通道：`faster-whisper`
 - 融合层：输出 `faithful_text`、`intended_text`、`diff_spans`、`should_correct`
-- LLM 层：优先调用 Ark `responses` 接口，输出结构化 JSON
+- LLM 层：支持 Ark `responses` 和 `chat/completions`，输出结构化 JSON
 - 录音页面：长按麦克风开始录音，松开后自动上传分析
 - 页面展示：忠实文案、理解文案、回复文案
 - 样本集：内置 `30` 条测试样本
@@ -62,7 +62,7 @@ scripts/
 
 - macOS
 - Python `3.11+`
-- 优先使用 Ark `responses` 接口；如未配置 Ark，则回退到 OpenAI-compatible chat 服务
+- 支持 `ark_responses` 与 `chat_completions` 两种 LLM 协议
 - 如需真实本地 ASR，需要安装：
   - `faster-whisper`
   - `transformers`
@@ -80,6 +80,25 @@ python -m pip install --upgrade pip
 pip install -e .[dev]
 pip install -e .[asr]
 cp .env.example .env
+```
+
+常用 LLM 配置：
+
+```env
+LLM_API_STYLE=chat_completions
+LLM_REASONING_EFFORT=none
+OPENAI_CHAT_COMPLETIONS_URL=https://your-host/api/v3/bots/chat/completions
+OPENAI_API_KEY=
+OPENAI_MODEL=your-model
+```
+
+或：
+
+```env
+LLM_API_STYLE=ark_responses
+ARK_API_URL=https://ark-cn-beijing.bytedance.net/api/v3/responses
+ARK_API_KEY=your-key
+ARK_MODEL=your-endpoint-id
 ```
 
 ## 模型目录约定
@@ -162,7 +181,14 @@ WAV2VEC2_MODEL_NAME=/Users/bytedance/Documents/github/honest-ear/models/wav2vec2
 启动本地服务：
 
 ```bash
-uvicorn honest_ear.api:app --reload --app-dir src
+./scripts/start-service.sh
+```
+
+如需自定义端口或追加 `uvicorn` 参数：
+
+```bash
+HONEST_EAR_PORT=8010 ./scripts/start-service.sh
+./scripts/start-service.sh --reload-dir src
 ```
 
 启动后直接打开：

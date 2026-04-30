@@ -2,8 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import pytest
+
 from honest_ear.config import Settings
-from honest_ear.llm import _extract_ark_output_text, request_correction
+from honest_ear.llm import (
+    LLMRequestError,
+    _extract_chat_completions_content,
+    _extract_ark_output_text,
+    _request_correction_via_ark,
+    _request_correction_via_openai_compatible,
+    request_correction,
+)
 from honest_ear.schemas import CorrectionResponse, DiffSpan, FusionResult
 
 
@@ -53,6 +63,27 @@ def test_extract_ark_output_text_reads_message_output() -> None:
     assert '"reply":"ok"' in result
 
 
+def test_extract_chat_completions_content_supports_sse_chunks() -> None:
+    """Ensures SSE chat completions responses are merged into one assistant message."""
+
+    response = type(
+        "FakeResponse",
+        (),
+        {
+            "headers": {"Content-Type": "text/event-stream"},
+            "text": (
+                'data: {"choices":[{"delta":{"content":"{\\"reply\\":\\"Hi\\""}}]}\n\n'
+                'data: {"choices":[{"delta":{"content":"}"}}]}\n\n'
+                "data: [DONE]\n"
+            ),
+        },
+    )()
+
+    result = _extract_chat_completions_content(response)
+
+    assert result == '{"reply":"Hi"}'
+
+
 def test_request_correction_prefers_ark_when_configured(monkeypatch) -> None:
     """Ensures Ark responses backend is selected when Ark config is present."""
 
@@ -81,6 +112,7 @@ def test_request_correction_prefers_ark_when_configured(monkeypatch) -> None:
     monkeypatch.setattr("honest_ear.llm._request_correction_via_openai_compatible", _fake_openai)
 
     settings = Settings(
+        llm_api_style="ark_responses",
         ark_api_url="https://ark-cn-beijing.bytedance.net/api/v3/responses",
         ark_api_key="demo",
         ark_model="ep-demo",
@@ -88,3 +120,185 @@ def test_request_correction_prefers_ark_when_configured(monkeypatch) -> None:
     result = request_correction(_build_fusion_result(), "accuracy", settings)
 
     assert result.reply == "ark"
+
+
+def test_request_correction_propagates_ark_failure(monkeypatch) -> None:
+    """Ensures Ark failures surface as errors instead of fallback replies."""
+
+    def _fake_ark(*_args, **_kwargs):
+        """Raises a deterministic backend error for propagation tests."""
+
+        _ = (_args, _kwargs)
+        raise LLMRequestError("Ark request failed with status 500: upstream timeout")
+
+    monkeypatch.setattr("honest_ear.llm._request_correction_via_ark", _fake_ark)
+
+    settings = Settings(
+        llm_api_style="ark_responses",
+        ark_api_url="https://ark-cn-beijing.bytedance.net/api/v3/responses",
+        ark_api_key="demo",
+        ark_model="ep-demo",
+    )
+
+    with pytest.raises(LLMRequestError, match="upstream timeout"):
+        request_correction(_build_fusion_result(), "accuracy", settings)
+
+
+def test_ark_request_payload_does_not_send_reasoning_effort(monkeypatch) -> None:
+    """Ensures the current Ark responses API payload omits unsupported fields."""
+
+    captured_payload: dict = {}
+
+    class _FakeResponse:
+        """Provides the minimal response surface used by the Ark client."""
+
+        def raise_for_status(self) -> None:
+            """Simulates one successful HTTP response."""
+
+        def json(self) -> dict:
+            """Returns one valid Ark-style JSON payload."""
+
+            return {
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": json.dumps(
+                                    {
+                                        "reply": "Nice. What fruit do you like most?",
+                                        "should_show_correction": True,
+                                        "corrections": [],
+                                        "faithful_text": "a",
+                                        "intended_text": "b",
+                                        "naturalness_score": 90,
+                                        "mode": "accuracy",
+                                        "meta": {"decision_reason": "ok"},
+                                    }
+                                ),
+                            }
+                        ],
+                    }
+                ]
+            }
+
+    class _FakeClient:
+        """Captures the outgoing request payload without making one real HTTP call."""
+
+        def __init__(self, *args, **kwargs) -> None:
+            """Accepts the same constructor shape as httpx.Client."""
+
+            _ = (args, kwargs)
+
+        def __enter__(self):
+            """Supports use as one context manager."""
+
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            """Closes the fake client without suppressing errors."""
+
+            _ = (exc_type, exc, tb)
+            return False
+
+        def post(self, url: str, headers: dict, json: dict) -> _FakeResponse:
+            """Stores the JSON body so the test can assert on it."""
+
+            _ = (url, headers)
+            captured_payload.update(json)
+            return _FakeResponse()
+
+    monkeypatch.setattr("honest_ear.llm.httpx.Client", _FakeClient)
+
+    settings = Settings(
+        ark_api_url="https://ark-cn-beijing.bytedance.net/api/v3/responses",
+        ark_api_key="demo",
+        ark_model="ep-demo",
+    )
+
+    result = _request_correction_via_ark(_build_fusion_result(), "accuracy", settings)
+
+    assert result.reply.startswith("Nice.")
+    assert "reasoning_effort" not in captured_payload
+
+
+def test_chat_completions_payload_uses_reasoning_effort_and_direct_url(monkeypatch) -> None:
+    """Ensures chat completions requests send reasoning.effort to the configured full URL."""
+
+    captured_request: dict = {}
+
+    class _FakeResponse:
+        """Provides the minimal response surface used by the chat completions client."""
+
+        def raise_for_status(self) -> None:
+            """Simulates one successful HTTP response."""
+
+        def json(self) -> dict:
+            """Returns one valid OpenAI-compatible JSON payload."""
+
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "reply": "Nice job. What do you want to eat next?",
+                                    "should_show_correction": False,
+                                    "corrections": [],
+                                    "faithful_text": "a",
+                                    "intended_text": "b",
+                                    "naturalness_score": 90,
+                                    "mode": "accuracy",
+                                    "meta": {"decision_reason": "ok"},
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+
+    class _FakeClient:
+        """Captures the outgoing request without making one real HTTP call."""
+
+        def __init__(self, *args, **kwargs) -> None:
+            """Accepts the same constructor shape as httpx.Client."""
+
+            _ = (args, kwargs)
+
+        def __enter__(self):
+            """Supports use as one context manager."""
+
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            """Closes the fake client without suppressing errors."""
+
+            _ = (exc_type, exc, tb)
+            return False
+
+        def post(self, url: str, headers: dict, json: dict) -> _FakeResponse:
+            """Stores the request parameters so the test can assert on them."""
+
+            captured_request["url"] = url
+            captured_request["headers"] = headers
+            captured_request["json"] = json
+            return _FakeResponse()
+
+    monkeypatch.setattr("honest_ear.llm.httpx.Client", _FakeClient)
+
+    settings = Settings(
+        llm_api_style="chat_completions",
+        llm_reasoning_effort="none",
+        openai_chat_completions_url="https://example.internal/api/v3/bots/chat/completions",
+        openai_api_key="",
+        openai_model="test-calculator",
+    )
+
+    result = _request_correction_via_openai_compatible(_build_fusion_result(), "accuracy", settings)
+
+    assert result.reply.startswith("Nice job.")
+    assert captured_request["url"] == "https://example.internal/api/v3/bots/chat/completions"
+    assert "Authorization" not in captured_request["headers"]
+    assert captured_request["json"]["reasoning"] == {"effort": "none"}
+    assert captured_request["json"]["stream"] is False

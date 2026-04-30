@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from honest_ear.asr import warmup_asr_models
 from honest_ear.config import get_settings
+from honest_ear.llm import LLMRequestError
 from honest_ear.pipeline import run_pipeline
 from honest_ear.samples import load_sample_records
 from honest_ear.schemas import PipelineResult, ProcessAudioRequest, SampleRecord
@@ -71,12 +72,15 @@ def list_samples() -> list[SampleRecord]:
 def process_audio(request: ProcessAudioRequest) -> PipelineResult:
     """Runs the full Phase 1 loop for a local audio file."""
 
-    return run_pipeline(
-        audio_path=request.audio_path,
-        mode=request.mode,
-        speak_reply=request.speak_reply,
-        settings=get_settings(),
-    )
+    try:
+        return run_pipeline(
+            audio_path=request.audio_path,
+            mode=request.mode,
+            speak_reply=request.speak_reply,
+            settings=get_settings(),
+        )
+    except LLMRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @app.post("/v1/process-upload", response_model=PipelineResult)
@@ -92,11 +96,14 @@ def process_uploaded_audio(
 
     temp_audio_path = _save_upload_to_temp_file(audio)
     try:
-        return run_pipeline(
-            audio_path=temp_audio_path,
-            mode=mode,
-            speak_reply=speak_reply,
-            settings=get_settings(),
-        )
+        try:
+            return run_pipeline(
+                audio_path=temp_audio_path,
+                mode=mode,
+                speak_reply=speak_reply,
+                settings=get_settings(),
+            )
+        except LLMRequestError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
     finally:
         temp_audio_path.unlink(missing_ok=True)
