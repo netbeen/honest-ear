@@ -24,7 +24,10 @@ async def lifespan(_app: FastAPI):
     _ = _app
     settings = get_settings()
     if not settings.skip_asr_warmup:
-        warmup_asr_models(settings)
+        try:
+            warmup_asr_models(settings)
+        except FileNotFoundError as exc:
+            raise RuntimeError(f"ASR startup failed. {exc}") from exc
     yield
 
 

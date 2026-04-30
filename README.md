@@ -135,7 +135,7 @@ models/
 也可以直接用 Python 命令：
 
 ```bash
-python -m honest_ear.download_models asr \
+python -m honest_ear.download_models \
   --whisper-model small.en \
   --wav2vec2-model facebook/wav2vec2-large-960h-lv60-self
 ```
@@ -144,14 +144,18 @@ python -m honest_ear.download_models asr \
 
 ## 使用本地模型路径
 
-下载完成后，建议将 `.env` 改成本地目录路径，而不是远程模型名：
+下载完成后，需要将 `.env` 改成本地目录路径，而不是远程模型名：
 
 ```env
 WHISPER_MODEL_SIZE=/Users/bytedance/Documents/github/honest-ear/models/whisper/small.en
 WAV2VEC2_MODEL_NAME=/Users/bytedance/Documents/github/honest-ear/models/wav2vec2/facebook--wav2vec2-large-960h-lv60-self
 ```
 
-这样服务启动时会直接读取本地模型目录，不再依赖运行时在线下载。
+服务只允许读取已经存在的本地模型目录。
+
+- 如果目录不存在，服务会在启动预热阶段直接报错
+- 不会在启动后自动下载
+- 也不会在收到请求后自动下载
 
 ## 启动
 

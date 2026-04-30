@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 
 load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 @dataclass
@@ -28,10 +29,13 @@ class Settings:
         os.getenv("HONEST_EAR_FAITHFUL_CONFIDENCE_THRESHOLD", "0.58")
     )
     max_diff_spans: int = int(os.getenv("HONEST_EAR_MAX_DIFF_SPANS", "2"))
-    whisper_model_size: str = os.getenv("WHISPER_MODEL_SIZE", "small.en")
+    whisper_model_size: str = os.getenv(
+        "WHISPER_MODEL_SIZE",
+        str(PROJECT_ROOT / "models/whisper/small.en"),
+    )
     wav2vec2_model_name: str = os.getenv(
         "WAV2VEC2_MODEL_NAME",
-        "facebook/wav2vec2-large-960h-lv60-self",
+        str(PROJECT_ROOT / "models/wav2vec2/facebook--wav2vec2-large-960h-lv60-self"),
     )
     sample_dataset_path: Path = Path(
         os.getenv(

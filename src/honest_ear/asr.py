@@ -12,6 +12,39 @@ from honest_ear.config import Settings
 from honest_ear.schemas import ASRResult, TokenScore
 
 
+def _suggest_download_command(model_ref: str, provider_name: str) -> str:
+    """Builds one shell command suggestion for downloading the missing local model."""
+
+    model_dir = Path(model_ref).expanduser()
+    model_name = model_dir.name
+    if provider_name == "Whisper":
+        return f"./scripts/download-asr-models.sh --whisper-only --whisper-model {model_name}"
+
+    inferred_model_name = model_name.replace("--", "/")
+    return (
+        "./scripts/download-asr-models.sh "
+        f"--wav2vec2-only --wav2vec2-model {inferred_model_name}"
+    )
+
+
+def _require_local_model_dir(model_ref: str, provider_name: str) -> Path:
+    """Validates that one ASR model is pre-downloaded into a local directory."""
+
+    model_dir = Path(model_ref).expanduser()
+    if not model_dir.is_absolute():
+        model_dir = model_dir.resolve()
+
+    if not model_dir.exists() or not model_dir.is_dir():
+        suggested_command = _suggest_download_command(model_ref, provider_name)
+        raise FileNotFoundError(
+            f"{provider_name} model directory not found: {model_dir}. "
+            "Please pre-download the model before starting the app. "
+            f"Suggested command: {suggested_command}"
+        )
+
+    return model_dir
+
+
 @dataclass
 class AudioMetadata:
     """Stores basic metadata required for confidence and timing heuristics."""
@@ -84,7 +117,8 @@ class WhisperASRProvider(BaseASRProvider):
         if self._model is None:
             from faster_whisper import WhisperModel
 
-            self._model = WhisperModel(self._settings.whisper_model_size, device="auto", compute_type="auto")
+            model_dir = _require_local_model_dir(self._settings.whisper_model_size, "Whisper")
+            self._model = WhisperModel(str(model_dir), device="auto", compute_type="auto")
         return self._model
 
     def warmup(self) -> None:
@@ -165,8 +199,9 @@ class Wav2Vec2FaithfulProvider(BaseASRProvider):
         if self._processor is None or self._model is None:
             from transformers import AutoModelForCTC, AutoProcessor
 
-            self._processor = AutoProcessor.from_pretrained(self._settings.wav2vec2_model_name)
-            self._model = AutoModelForCTC.from_pretrained(self._settings.wav2vec2_model_name)
+            model_dir = _require_local_model_dir(self._settings.wav2vec2_model_name, "wav2vec2")
+            self._processor = AutoProcessor.from_pretrained(str(model_dir), local_files_only=True)
+            self._model = AutoModelForCTC.from_pretrained(str(model_dir), local_files_only=True)
 
     def warmup(self) -> None:
         """Preloads the wav2vec2 processor and model during application startup."""
