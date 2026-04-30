@@ -1,2 +1,212 @@
 # honest-ear
-AI English Speaking Coach
+
+AI 英语口语陪练原型。
+
+## 当前状态
+
+当前仓库已经具备一套可运行的 Phase 1 验证原型，重点验证下面这条链路：
+
+- 同一段音频并行跑双通道 ASR
+- 本地做 diff 和置信度融合
+- 调用 OpenAI-compatible chat LLM 输出结构化纠错结果
+- 展示忠实文案、理解文案和回复文案
+
+产品目标仍然是 macOS 原生应用，但在 Tauri 壳子尚未搭建完成前，当前版本先提供一个浏览器界面的录音验证页，方便快速测试完整链路。
+
+## 你需要知道
+
+- 这是一个新项目，不做旧版本兼容
+- Python 版本直接要求 `3.11+`
+- 如果你本机还是 `Python 3.9`，请直接升级，不需要为了旧环境降级项目实现
+- 当前浏览器页面只是原生应用前的过渡验证形态，后续可以直接封装进 `Tauri`
+
+## 已实现能力
+
+- 忠实通道：`wav2vec2`，不接语言模型，尽量保留原始表达
+- 理解通道：`faster-whisper`
+- 融合层：输出 `faithful_text`、`intended_text`、`diff_spans`、`should_correct`
+- LLM 层：调用 OpenAI-compatible chat 接口，输出结构化 JSON
+- 录音页面：长按麦克风开始录音，松开后自动上传分析
+- 页面展示：忠实文案、理解文案、回复文案
+- 样本集：内置 `30` 条测试样本
+
+## 目录结构
+
+```text
+src/honest_ear/
+  api.py           FastAPI 接口与浏览器录音页入口
+  asr.py           双通道 ASR provider
+  cli.py           CLI 入口
+  config.py        环境配置
+  fusion.py        本地 diff 和置信度融合
+  llm.py           OpenAI-compatible chat 调用
+  pipeline.py      端到端编排
+  samples.py       样本集加载
+  schemas.py       结构化数据模型
+  tts.py           macOS 本地 TTS 封装
+  web/
+    index.html     录音验证页面
+    recorder.js    浏览器录音与上传逻辑
+data/samples/
+  phase1_eval_samples.jsonl
+tests/
+  test_api.py
+  test_fusion.py
+```
+
+## 环境要求
+
+- macOS
+- Python `3.11+`
+- 本地可访问的 OpenAI-compatible chat 服务，例如 `Ollama`、`LM Studio`、`vLLM`
+- 如需真实本地 ASR，需要安装：
+  - `faster-whisper`
+  - `transformers`
+  - `torch`
+  - `soundfile`
+
+## 安装
+
+如果当前 `python3 --version` 小于 `3.11`，请先直接安装新版 Python。
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -e .[dev]
+pip install -e .[asr]
+cp .env.example .env
+```
+
+## 启动
+
+启动本地服务：
+
+```bash
+uvicorn honest_ear.api:app --reload --app-dir src
+```
+
+启动后直接打开：
+
+```text
+http://127.0.0.1:8000
+```
+
+页面会显示一个居中的麦克风按钮：
+
+- 长按开始录音
+- 松开结束录音
+- 自动上传音频到本地服务分析
+- 页面展示忠实文案、理解文案和回复文案
+
+## 命令行方式
+
+分析本地音频文件：
+
+```bash
+honest-ear process /absolute/path/to/input.wav --mode accuracy
+```
+
+查看内置样本：
+
+```bash
+honest-ear list-samples
+```
+
+## API
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+查看样本集：
+
+```bash
+curl http://127.0.0.1:8000/v1/samples
+```
+
+直接传文件分析：
+
+```bash
+curl -X POST http://127.0.0.1:8000/v1/process-upload \
+  -F "audio=@/absolute/path/to/input.wav" \
+  -F "mode=accuracy" \
+  -F "speak_reply=false"
+```
+
+## 输出说明
+
+融合层的中间结果形如：
+
+```json
+{
+  "faithful_text": "he dont like the coffee what you make",
+  "intended_text": "he doesn't like the coffee you made",
+  "faithful_confidence": 0.78,
+  "intended_confidence": 0.92,
+  "diff_spans": [
+    {
+      "faithful": "dont",
+      "intended": "doesn't",
+      "start_ms": 100,
+      "end_ms": 200,
+      "confidence": 0.84,
+      "reason": "likely_grammar_inflection"
+    }
+  ],
+  "should_correct": true,
+  "gating_reason": "stable_diff_detected"
+}
+```
+
+LLM 返回结果形如：
+
+```json
+{
+  "reply": "I understood you. Here is a cleaner way to say it.",
+  "should_show_correction": true,
+  "corrections": [
+    {
+      "wrong": "he dont like",
+      "right": "he doesn't like",
+      "why": "Third-person singular verbs in the present simple need does not.",
+      "confidence": 0.83
+    }
+  ],
+  "faithful_text": "he dont like the coffee what you make",
+  "intended_text": "he doesn't like the coffee you made",
+  "naturalness_score": 80,
+  "mode": "accuracy",
+  "meta": {
+    "decision_reason": "stable_diff_detected"
+  }
+}
+```
+
+## 测试
+
+运行自动化测试：
+
+```bash
+pytest
+```
+
+你认可的“可接受测试状态”在当前实现中对应为：
+
+- 启动程序后有可见 UI
+- 页面中间有麦克风按钮
+- 长按开始录音，放手结束
+- 音频上传到 app 分析
+- 页面展示忠实文案、理解文案和回复文案
+
+## 下一步
+
+如果要继续朝原生应用推进，推荐下一步直接做：
+
+- `Tauri 2` 壳
+- React 前端
+- 当前 Python 服务作为本地推理后端
+
+这样当前录音页和接口设计可以基本保留，不会浪费这轮实现。

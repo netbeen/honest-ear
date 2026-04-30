@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HonestEar Demo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+        background: #0f1115;
+        color: #f2f4f8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(circle at top, rgba(75, 123, 236, 0.28), transparent 30%),
+          linear-gradient(180deg, #10131a 0%, #0a0c10 100%);
+      }
+
+      .app {
+        width: min(920px, calc(100vw - 32px));
+        padding: 32px;
+        border-radius: 24px;
+        background: rgba(18, 21, 30, 0.92);
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .hero {
+        text-align: center;
+        margin-bottom: 28px;
+      }
+
+      .hero h1 {
+        margin: 0 0 12px;
+        font-size: 32px;
+      }
+
+      .hero p {
+        margin: 0;
+        color: #b9c0cf;
+        line-height: 1.6;
+      }
+
+      .mic-panel {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+        padding: 28px 20px 32px;
+        border-radius: 20px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .mic-button {
+        width: 128px;
+        height: 128px;
+        border: none;
+        border-radius: 999px;
+        background: linear-gradient(180deg, #ff6f61 0%, #ff3d71 100%);
+        color: #ffffff;
+        font-size: 44px;
+        cursor: pointer;
+        user-select: none;
+        transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+        box-shadow: 0 20px 50px rgba(255, 61, 113, 0.32);
+      }
+
+      .mic-button:active,
+      .mic-button.recording {
+        transform: scale(0.96);
+        box-shadow: 0 10px 28px rgba(255, 61, 113, 0.5);
+      }
+
+      .status {
+        min-height: 24px;
+        color: #d5d9e2;
+      }
+
+      .hint {
+        color: #8b94a7;
+        font-size: 14px;
+      }
+
+      .results {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 24px;
+      }
+
+      .card {
+        min-height: 220px;
+        padding: 18px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .card h2 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+
+      .card pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        line-height: 1.7;
+        color: #ecf1ff;
+      }
+
+      .meta {
+        margin-top: 10px;
+        color: #96a0b5;
+        font-size: 13px;
+      }
+
+      @media (max-width: 860px) {
+        .results {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <section class="hero">
+        <h1>HonestEar 录音验证原型</h1>
+        <p>长按中间麦克风开始录音，松手后自动上传并分析，页面会展示忠实文案、理解文案和建议回复文案。</p>
+      </section>
+
+      <section class="mic-panel">
+        <button id="micButton" class="mic-button" type="button" aria-label="开始录音">🎙</button>
+        <div id="status" class="status">等待录音</div>
+        <div class="hint">浏览器首次会请求麦克风权限。建议使用 Safari 或 Chrome 最新版。</div>
+      </section>
+
+      <section class="results">
+        <article class="card">
+          <h2>忠实文案</h2>
+          <pre id="faithfulText">暂无结果</pre>
+          <div class="meta" id="faithfulMeta"></div>
+        </article>
+        <article class="card">
+          <h2>理解文案</h2>
+          <pre id="intendedText">暂无结果</pre>
+          <div class="meta" id="intendedMeta"></div>
+        </article>
+        <article class="card">
+          <h2>回复文案</h2>
+          <pre id="replyText">暂无结果</pre>
+          <div class="meta" id="replyMeta"></div>
+        </article>
+      </section>
+    </main>
+
+    <script src="/static/recorder.js"></script>
+  </body>
+</html>
