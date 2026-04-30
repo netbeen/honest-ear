@@ -36,6 +36,7 @@ dev = [
 
 [project.scripts]
 honest-ear = "honest_ear.cli:app"
+honest-ear-download-models = "honest_ear.download_models:app"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

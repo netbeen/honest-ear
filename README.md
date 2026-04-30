@@ -52,6 +52,10 @@ data/samples/
 tests/
   test_api.py
   test_fusion.py
+models/
+  .gitkeep
+scripts/
+  download-asr-models.sh
 ```
 
 ## 环境要求
@@ -77,6 +81,77 @@ pip install -e .[dev]
 pip install -e .[asr]
 cp .env.example .env
 ```
+
+## 模型目录约定
+
+- 项目内约定使用 `models/` 存放本地 ASR 模型
+- 该目录会保留在仓库中，但真实模型文件不会上传 Git
+- 仓库中只保留 `models/.gitkeep`，用于提示后续开发者模型应放在这里
+
+推荐目录结构：
+
+```text
+models/
+  .gitkeep
+  whisper/
+    small.en/
+    medium.en/
+  wav2vec2/
+    facebook--wav2vec2-large-960h-lv60-self/
+```
+
+## 下载本地 ASR 模型
+
+你可以通过 shell 触发模型下载，方便切换不同模型做效果验证。
+
+下载默认模型：
+
+```bash
+./scripts/download-asr-models.sh
+```
+
+只下载 Whisper：
+
+```bash
+./scripts/download-asr-models.sh --whisper-only --whisper-model small.en
+```
+
+只下载 wav2vec2：
+
+```bash
+./scripts/download-asr-models.sh \
+  --wav2vec2-only \
+  --wav2vec2-model facebook/wav2vec2-large-960h-lv60-self
+```
+
+同时下载指定组合：
+
+```bash
+./scripts/download-asr-models.sh \
+  --whisper-model medium.en \
+  --wav2vec2-model facebook/wav2vec2-base-960h
+```
+
+也可以直接用 Python 命令：
+
+```bash
+python -m honest_ear.download_models asr \
+  --whisper-model small.en \
+  --wav2vec2-model facebook/wav2vec2-large-960h-lv60-self
+```
+
+下载后，脚本会把模型放到 `models/whisper/...` 和 `models/wav2vec2/...` 下。
+
+## 使用本地模型路径
+
+下载完成后，建议将 `.env` 改成本地目录路径，而不是远程模型名：
+
+```env
+WHISPER_MODEL_SIZE=/Users/bytedance/Documents/github/honest-ear/models/whisper/small.en
+WAV2VEC2_MODEL_NAME=/Users/bytedance/Documents/github/honest-ear/models/wav2vec2/facebook--wav2vec2-large-960h-lv60-self
+```
+
+这样服务启动时会直接读取本地模型目录，不再依赖运行时在线下载。
 
 ## 启动
 
