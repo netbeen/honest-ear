@@ -18,15 +18,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 class Settings:
     """Stores environment-driven settings for the Phase 1 pipeline."""
 
-    llm_api_style: str = os.getenv("LLM_API_STYLE", "auto")
     llm_reasoning_effort: str = os.getenv("LLM_REASONING_EFFORT", "none")
-    ark_api_url: str = os.getenv("ARK_API_URL", "")
+    ark_base_url: str = os.getenv("ARK_BASE_URL", "https://ark-cn-beijing.bytedance.net/api/v3")
     ark_api_key: str = os.getenv("ARK_API_KEY", "")
     ark_model: str = os.getenv("ARK_MODEL", "")
-    openai_base_url: str = os.getenv("OPENAI_BASE_URL", "http://localhost:11434/v1")
-    openai_chat_completions_url: str = os.getenv("OPENAI_CHAT_COMPLETIONS_URL", "")
-    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
-    openai_model: str = os.getenv("OPENAI_MODEL", "qwen2.5:7b-instruct")
     correction_mode: str = os.getenv("HONEST_EAR_MODE", "accuracy")
     faithful_confidence_threshold: float = float(
         os.getenv("HONEST_EAR_FAITHFUL_CONFIDENCE_THRESHOLD", "0.58")
@@ -49,23 +44,6 @@ class Settings:
     skip_asr_warmup: bool = os.getenv("HONEST_EAR_SKIP_ASR_WARMUP", "0") == "1"
     tts_voice: str = os.getenv("HONEST_EAR_TTS_VOICE", "Samantha")
     tts_rate: int = int(os.getenv("HONEST_EAR_TTS_RATE", "180"))
-
-    def use_ark_responses(self) -> bool:
-        """Returns whether Ark responses API should be preferred for LLM calls."""
-
-        if self.llm_api_style == "ark_responses":
-            return True
-        if self.llm_api_style == "chat_completions":
-            return False
-        return bool(self.ark_api_url and self.ark_api_key and self.ark_model)
-
-    def get_chat_completions_url(self) -> str:
-        """Returns the effective chat completions endpoint for the active backend."""
-
-        if self.openai_chat_completions_url:
-            return self.openai_chat_completions_url
-        return f"{self.openai_base_url.rstrip('/')}/chat/completions"
-
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -79,9 +79,10 @@ def test_index_page_is_served() -> None:
 def test_process_upload_returns_pipeline_result(monkeypatch) -> None:
     """Ensures uploaded wav audio is accepted and transformed into structured output."""
 
-    def _fake_run_pipeline(audio_path: Path, mode: str, speak_reply: bool, settings):
+    def _fake_run_pipeline(audio_path: Path, mode: str, speak_reply: bool, settings, trace_id=None):
         """Replaces runtime inference with a deterministic fixture."""
 
+        _ = trace_id
         assert mode == "accuracy"
         assert speak_reply is False
         return _build_pipeline_result(audio_path)
@@ -99,4 +100,3 @@ def test_process_upload_returns_pipeline_result(monkeypatch) -> None:
     assert body["faithful_asr"]["text"] == "he dont like coffee"
     assert body["intended_asr"]["text"] == "he doesn't like coffee"
     assert body["llm"]["reply"] == "He probably doesn't like the coffee."
-

@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import json
 from pathlib import Path
 import tempfile
+import time
+import urllib.request
+import uuid
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -18,6 +22,43 @@ from honest_ear.samples import load_sample_records
 from honest_ear.schemas import PipelineResult, ProcessAudioRequest, SampleRecord
 
 
+# #region debug-point C:report-runtime-event
+def _report_debug_event(
+    hypothesis_id: str, location: str, message: str, data: dict, trace_id: str
+) -> None:
+    """Reports one runtime debug event to the local debug server when enabled."""
+
+    debug_env_path = Path(__file__).resolve().parents[2] / ".dbg" / "process-upload-latency.env"
+    debug_url = "http://127.0.0.1:7777/event"
+    session_id = "process-upload-latency"
+    try:
+        if debug_env_path.exists():
+            for line in debug_env_path.read_text().splitlines():
+                if line.startswith("DEBUG_SERVER_URL="):
+                    debug_url = line.split("=", 1)[1].strip()
+                if line.startswith("DEBUG_SESSION_ID="):
+                    session_id = line.split("=", 1)[1].strip()
+        payload = {
+            "sessionId": session_id,
+            "runId": "pre-fix",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "msg": f"[DEBUG] {message}",
+            "data": data,
+            "traceId": trace_id,
+            "ts": int(time.time() * 1000),
+        }
+        request = urllib.request.Request(
+            debug_url,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(request, timeout=0.5).read()
+    except Exception:
+        pass
+
+
+# #endregion
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Preloads ASR models before serving requests unless explicitly skipped."""
@@ -94,16 +135,69 @@ def process_uploaded_audio(
     if not audio.filename:
         raise HTTPException(status_code=400, detail="Missing uploaded audio filename.")
 
+    trace_id = str(uuid.uuid4())
+    request_started_at = time.perf_counter()
+    # #region debug-point C:upload-start
+    _report_debug_event(
+        "C",
+        "api.py:process_uploaded_audio:start",
+        "Upload processing started.",
+        {"filename": audio.filename, "mode": mode, "speak_reply": speak_reply},
+        trace_id,
+    )
+    # #endregion
+
+    save_started_at = time.perf_counter()
     temp_audio_path = _save_upload_to_temp_file(audio)
+    # #region debug-point C:upload-saved
+    _report_debug_event(
+        "C",
+        "api.py:process_uploaded_audio:save",
+        "Uploaded file persisted to temp path.",
+        {
+            "duration_ms": round((time.perf_counter() - save_started_at) * 1000, 2),
+            "temp_audio_path": str(temp_audio_path),
+            "size_bytes": temp_audio_path.stat().st_size,
+        },
+        trace_id,
+    )
+    # #endregion
+
     try:
         try:
-            return run_pipeline(
+            result = run_pipeline(
                 audio_path=temp_audio_path,
                 mode=mode,
                 speak_reply=speak_reply,
                 settings=get_settings(),
+                trace_id=trace_id,
             )
+            # #region debug-point D:upload-finished
+            _report_debug_event(
+                "D",
+                "api.py:process_uploaded_audio:done",
+                "Upload processing finished.",
+                {
+                    "duration_ms": round((time.perf_counter() - request_started_at) * 1000, 2),
+                    "temp_audio_path": str(temp_audio_path),
+                },
+                trace_id,
+            )
+            # #endregion
+            return result
         except LLMRequestError as exc:
+            # #region debug-point B:upload-llm-error
+            _report_debug_event(
+                "B",
+                "api.py:process_uploaded_audio:llm-error",
+                "LLM request failed during upload processing.",
+                {
+                    "duration_ms": round((time.perf_counter() - request_started_at) * 1000, 2),
+                    "error": str(exc),
+                },
+                trace_id,
+            )
+            # #endregion
             raise HTTPException(status_code=502, detail=str(exc)) from exc
     finally:
         temp_audio_path.unlink(missing_ok=True)
