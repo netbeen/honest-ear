@@ -39,6 +39,7 @@ class Settings:
             "data/samples/phase1_eval_samples.jsonl",
         )
     )
+    skip_asr_warmup: bool = os.getenv("HONEST_EAR_SKIP_ASR_WARMUP", "0") == "1"
     tts_voice: str = os.getenv("HONEST_EAR_TTS_VOICE", "Samantha")
     tts_rate: int = int(os.getenv("HONEST_EAR_TTS_RATE", "180"))
 

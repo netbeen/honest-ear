@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 import tempfile
 
@@ -9,13 +10,25 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from honest_ear.asr import warmup_asr_models
 from honest_ear.config import get_settings
 from honest_ear.pipeline import run_pipeline
 from honest_ear.samples import load_sample_records
 from honest_ear.schemas import PipelineResult, ProcessAudioRequest, SampleRecord
 
 
-app = FastAPI(title="HonestEar Phase 1 API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Preloads ASR models before serving requests unless explicitly skipped."""
+
+    _ = _app
+    settings = get_settings()
+    if not settings.skip_asr_warmup:
+        warmup_asr_models(settings)
+    yield
+
+
+app = FastAPI(title="HonestEar Phase 1 API", version="0.1.0", lifespan=lifespan)
 WEB_DIR = Path(__file__).resolve().parent / "web"
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 

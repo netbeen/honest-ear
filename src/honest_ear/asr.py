@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from threading import Lock
 from pathlib import Path
 import math
 
@@ -58,6 +59,10 @@ class BaseASRProvider(ABC):
     channel: str
 
     @abstractmethod
+    def warmup(self) -> None:
+        """Loads model assets eagerly so the first request avoids cold starts."""
+
+    @abstractmethod
     def transcribe(self, audio_path: Path) -> ASRResult:
         """Transcribes one audio file and returns a normalized result."""
 
@@ -81,6 +86,11 @@ class WhisperASRProvider(BaseASRProvider):
 
             self._model = WhisperModel(self._settings.whisper_model_size, device="auto", compute_type="auto")
         return self._model
+
+    def warmup(self) -> None:
+        """Preloads the whisper model during application startup."""
+
+        self._get_model()
 
     def transcribe(self, audio_path: Path) -> ASRResult:
         """Returns the intended-text transcript and per-word confidence when available."""
@@ -158,6 +168,11 @@ class Wav2Vec2FaithfulProvider(BaseASRProvider):
             self._processor = AutoProcessor.from_pretrained(self._settings.wav2vec2_model_name)
             self._model = AutoModelForCTC.from_pretrained(self._settings.wav2vec2_model_name)
 
+    def warmup(self) -> None:
+        """Preloads the wav2vec2 processor and model during application startup."""
+
+        self._ensure_loaded()
+
     def transcribe(self, audio_path: Path) -> ASRResult:
         """Returns the faithful-text transcript with coarse confidence heuristics."""
 
@@ -199,7 +214,30 @@ class Wav2Vec2FaithfulProvider(BaseASRProvider):
         )
 
 
-def build_asr_providers(settings: Settings) -> tuple[Wav2Vec2FaithfulProvider, WhisperASRProvider]:
-    """Builds the two local ASR channels required by Phase 1."""
+_PROVIDERS_LOCK = Lock()
+_CACHED_PROVIDER_KEY: tuple[str, str] | None = None
+_CACHED_PROVIDERS: tuple[Wav2Vec2FaithfulProvider, WhisperASRProvider] | None = None
 
-    return Wav2Vec2FaithfulProvider(settings), WhisperASRProvider(settings)
+
+def build_asr_providers(settings: Settings) -> tuple[Wav2Vec2FaithfulProvider, WhisperASRProvider]:
+    """Builds or reuses singleton ASR providers for the active model configuration."""
+
+    global _CACHED_PROVIDER_KEY, _CACHED_PROVIDERS
+
+    provider_key = (settings.wav2vec2_model_name, settings.whisper_model_size)
+    with _PROVIDERS_LOCK:
+        if _CACHED_PROVIDERS is None or _CACHED_PROVIDER_KEY != provider_key:
+            _CACHED_PROVIDER_KEY = provider_key
+            _CACHED_PROVIDERS = (
+                Wav2Vec2FaithfulProvider(settings),
+                WhisperASRProvider(settings),
+            )
+        return _CACHED_PROVIDERS
+
+
+def warmup_asr_models(settings: Settings) -> None:
+    """Loads both ASR models before the application starts serving requests."""
+
+    faithful_provider, intended_provider = build_asr_providers(settings)
+    faithful_provider.warmup()
+    intended_provider.warmup()

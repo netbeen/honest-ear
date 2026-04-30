@@ -109,6 +109,7 @@ def _request_correction_via_ark(fusion: FusionResult, mode: str, settings: Setti
     prompt = build_correction_prompt(fusion, mode)
     payload = {
         "model": settings.ark_model,
+        "reasoning_effort": "minimal",
         "input": [
             {
                 "role": "user",
