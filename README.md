@@ -94,6 +94,8 @@ ARK_MODEL=your-endpoint-id
 LM_STUDIO_BASE_URL=http://127.0.0.1:1234/v1
 LM_STUDIO_API_KEY=
 LM_STUDIO_MODEL=qwen/qwen3.5-35b-a3b
+HONEST_EAR_TTS_VOICE=Tessa
+HONEST_EAR_TTS_RATE=180
 ```
 
 后端切换说明：
@@ -110,6 +112,12 @@ LM Studio 说明：
 
 - `LM_STUDIO_MODEL` 填写本地加载的模型名，例如 `qwen/qwen3.5-35b-a3b`
 - 当前 `LM Studio` 不接受 `response_format.type=json_object`，项目已自动使用更兼容的请求形态
+
+TTS 说明：
+
+- 当前在 macOS `say` 音色里，`Tessa` 的试听效果明显好于 `Flo`，也比 `Karen` 更自然，当前作为默认推荐音色
+- `Karen` 可作为备选，整体可用，但英文断句和连读感略重
+- 如需调整语速，可修改 `HONEST_EAR_TTS_RATE`，当前验证值为 `180`
 
 ## 模型目录约定
 
