@@ -1,3 +1,29 @@
+Metadata-Version: 2.4
+Name: honest-ear
+Version: 0.1.0
+Summary: Phase 1 prototype for HonestEar AI English speaking coach.
+Author: HonestEar
+License: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: fastapi<1.0.0,>=0.115.0
+Requires-Dist: httpx<1.0.0,>=0.28.0
+Requires-Dist: pydantic<3.0.0,>=2.10.0
+Requires-Dist: python-multipart<1.0.0,>=0.0.9
+Requires-Dist: python-dotenv<2.0.0,>=1.0.1
+Requires-Dist: typer<1.0.0,>=0.15.0
+Requires-Dist: uvicorn<1.0.0,>=0.34.0
+Provides-Extra: asr
+Requires-Dist: numpy<3.0.0,>=2.2.0; extra == "asr"
+Requires-Dist: soundfile<1.0.0,>=0.13.0; extra == "asr"
+Requires-Dist: torch<3.0.0,>=2.6.0; extra == "asr"
+Requires-Dist: transformers<5.0.0,>=4.51.0; extra == "asr"
+Requires-Dist: faster-whisper<2.0.0,>=1.1.0; extra == "asr"
+Provides-Extra: dev
+Requires-Dist: pytest<9.0.0,>=8.3.0; extra == "dev"
+Dynamic: license-file
+
 # honest-ear
 
 AI 英语口语陪练原型。

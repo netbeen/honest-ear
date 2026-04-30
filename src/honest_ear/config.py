@@ -17,6 +17,9 @@ load_dotenv()
 class Settings:
     """Stores environment-driven settings for the Phase 1 pipeline."""
 
+    ark_api_url: str = os.getenv("ARK_API_URL", "")
+    ark_api_key: str = os.getenv("ARK_API_KEY", "")
+    ark_model: str = os.getenv("ARK_MODEL", "")
     openai_base_url: str = os.getenv("OPENAI_BASE_URL", "http://localhost:11434/v1")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "demo")
     openai_model: str = os.getenv("OPENAI_MODEL", "qwen2.5:7b-instruct")
@@ -38,6 +41,11 @@ class Settings:
     )
     tts_voice: str = os.getenv("HONEST_EAR_TTS_VOICE", "Samantha")
     tts_rate: int = int(os.getenv("HONEST_EAR_TTS_RATE", "180"))
+
+    def use_ark_responses(self) -> bool:
+        """Returns whether Ark responses API should be preferred for LLM calls."""
+
+        return bool(self.ark_api_url and self.ark_api_key and self.ark_model)
 
 
 @lru_cache(maxsize=1)

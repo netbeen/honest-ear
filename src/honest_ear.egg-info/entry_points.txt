@@ -1,0 +1,2 @@
+[console_scripts]
+honest-ear = honest_ear.cli:app

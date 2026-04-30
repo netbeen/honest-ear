@@ -1,4 +1,4 @@
-"""OpenAI-compatible LLM client for HonestEar correction decisions."""
+"""LLM client for HonestEar correction decisions."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from honest_ear.schemas import CorrectionResponse, FusionResult
 
 
 def build_correction_prompt(fusion: FusionResult, mode: str) -> str:
-    """Builds the structured prompt that constrains the chat model output."""
+    """Builds the structured prompt that constrains the model output."""
 
     payload = {
         "mode": mode,
@@ -46,7 +46,7 @@ def build_correction_prompt(fusion: FusionResult, mode: str) -> str:
     return (
         "You are an English speaking coach. "
         "You only see two transcript channels and confidence metadata, never audio. "
-        "Return valid JSON only.\n\n"
+        "Return one valid JSON object only, with no markdown fences and no extra explanation.\n\n"
         f"{json.dumps(payload, ensure_ascii=True, indent=2)}"
     )
 
@@ -90,7 +90,59 @@ def _build_fallback_response(fusion: FusionResult, mode: str) -> CorrectionRespo
     )
 
 
-def request_correction(fusion: FusionResult, mode: str, settings: Settings) -> CorrectionResponse:
+def _extract_ark_output_text(response_payload: dict) -> str:
+    """Extracts assistant text from Ark responses API payload."""
+
+    output_items = response_payload.get("output", [])
+    for item in output_items:
+        if item.get("type") != "message":
+            continue
+        for content_item in item.get("content", []):
+            if content_item.get("type") == "output_text":
+                return content_item.get("text", "")
+    raise ValueError("Ark response does not contain assistant output_text.")
+
+
+def _request_correction_via_ark(fusion: FusionResult, mode: str, settings: Settings) -> CorrectionResponse:
+    """Calls Ark responses API and validates the structured JSON output."""
+
+    prompt = build_correction_prompt(fusion, mode)
+    payload = {
+        "model": settings.ark_model,
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": prompt,
+                    }
+                ],
+            }
+        ],
+    }
+
+    try:
+        with httpx.Client(timeout=90.0) as client:
+            response = client.post(
+                settings.ark_api_url,
+                headers={
+                    "Authorization": f"Bearer {settings.ark_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            response.raise_for_status()
+        raw_content = _extract_ark_output_text(response.json())
+        parsed = _extract_json_object(raw_content)
+        return CorrectionResponse.model_validate(parsed)
+    except Exception:
+        return _build_fallback_response(fusion, mode)
+
+
+def _request_correction_via_openai_compatible(
+    fusion: FusionResult, mode: str, settings: Settings
+) -> CorrectionResponse:
     """Calls an OpenAI-compatible chat endpoint and validates the JSON output."""
 
     prompt = build_correction_prompt(fusion, mode)
@@ -127,3 +179,10 @@ def request_correction(fusion: FusionResult, mode: str, settings: Settings) -> C
     except Exception:
         return _build_fallback_response(fusion, mode)
 
+
+def request_correction(fusion: FusionResult, mode: str, settings: Settings) -> CorrectionResponse:
+    """Calls the configured LLM backend and validates the structured JSON output."""
+
+    if settings.use_ark_responses():
+        return _request_correction_via_ark(fusion, mode, settings)
+    return _request_correction_via_openai_compatible(fusion, mode, settings)
