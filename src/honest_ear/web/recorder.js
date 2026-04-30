@@ -6,6 +6,8 @@ const intendedText = document.getElementById("intendedText");
 const intendedMeta = document.getElementById("intendedMeta");
 const replyText = document.getElementById("replyText");
 const replyMeta = document.getElementById("replyMeta");
+const replayButton = document.getElementById("replayButton");
+const replyAudio = document.getElementById("replyAudio");
 
 let mediaStream = null;
 let audioContext = null;
@@ -14,6 +16,7 @@ let source = null;
 let recording = false;
 let pcmChunks = [];
 let sampleRate = 44100;
+let latestTtsAudioUrl = "";
 
 function setStatus(message) {
   statusText.textContent = message;
@@ -27,7 +30,8 @@ function setResult(result) {
   intendedMeta.textContent = `置信度：${formatConfidence(result.intended_asr?.confidence)}`;
 
   replyText.textContent = result.llm?.reply || "暂无结果";
-  replyMeta.textContent = `是否建议纠错：${result.fusion?.should_correct ? "是" : "否"}`;
+  const ttsReady = result.tts_audio_url ? "已生成" : "未生成";
+  replyMeta.textContent = `是否建议纠错：${result.fusion?.should_correct ? "是" : "否"} | 回复语音：${ttsReady}`;
 }
 
 function formatConfidence(value) {
@@ -85,6 +89,32 @@ async function readErrorMessage(response) {
 
   const fallbackText = await response.text();
   return fallbackText.trim() || `请求失败，HTTP ${response.status}`;
+}
+
+/**
+ * Updates the current reply audio source and toggles replay availability.
+ */
+function setReplyAudio(url) {
+  latestTtsAudioUrl = typeof url === "string" ? url : "";
+  replayButton.disabled = !latestTtsAudioUrl;
+  replyAudio.src = latestTtsAudioUrl;
+  replyAudio.load();
+}
+
+/**
+ * Attempts to play the latest synthesized reply audio and surfaces autoplay failures.
+ */
+async function playReplyAudio() {
+  if (!latestTtsAudioUrl) {
+    return;
+  }
+
+  try {
+    await replyAudio.play();
+  } catch (error) {
+    console.warn(error);
+    setStatus("分析完成，语音已生成；如未自动播放，请点击“重播回复语音”");
+  }
 }
 
 function encodeWav(samples, outputRate) {
@@ -178,7 +208,7 @@ async function stopRecording() {
     const formData = new FormData();
     formData.append("audio", wavBlob, "recording.wav");
     formData.append("mode", "accuracy");
-    formData.append("speak_reply", "false");
+    formData.append("speak_reply", "true");
 
     const response = await fetch("/v1/process-upload", {
       method: "POST",
@@ -191,9 +221,12 @@ async function stopRecording() {
 
     const result = await response.json();
     setResult(result);
-    setStatus("分析完成，可以继续长按录音");
+    setReplyAudio(result.tts_audio_url || "");
+    setStatus(result.tts_audio_url ? "分析完成，正在播放回复语音" : "分析完成，可以继续长按录音");
+    await playReplyAudio();
   } catch (error) {
     console.error(error);
+    setReplyAudio("");
     setStatus(`分析失败：${error.message}`);
   } finally {
     pcmChunks = [];
@@ -228,4 +261,8 @@ micButton.addEventListener("touchstart", async (event) => {
 micButton.addEventListener("touchend", async (event) => {
   event.preventDefault();
   await stopRecording();
+});
+
+replayButton.addEventListener("click", async () => {
+  await playReplyAudio();
 });

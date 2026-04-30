@@ -93,6 +93,32 @@
         font-size: 14px;
       }
 
+      .reply-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .secondary-button {
+        padding: 10px 14px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        color: #f2f4f8;
+        cursor: pointer;
+        transition: background 120ms ease, border-color 120ms ease;
+      }
+
+      .secondary-button:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.2);
+      }
+
+      .secondary-button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
       .results {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -144,6 +170,10 @@
       <section class="mic-panel">
         <button id="micButton" class="mic-button" type="button" aria-label="开始录音">🎙</button>
         <div id="status" class="status">等待录音</div>
+        <div class="reply-actions">
+          <button id="replayButton" class="secondary-button" type="button" disabled>重播回复语音</button>
+          <audio id="replyAudio" preload="auto" controls></audio>
+        </div>
         <div class="hint">浏览器首次会请求麦克风权限。建议使用 Safari 或 Chrome 最新版。</div>
       </section>
 

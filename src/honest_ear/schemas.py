@@ -81,6 +81,7 @@ class PipelineResult(BaseModel):
     fusion: FusionResult
     llm: CorrectionResponse
     tts_output: Optional[str] = None
+    tts_audio_url: Optional[str] = None
 
 
 class ProcessAudioRequest(BaseModel):

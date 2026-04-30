@@ -7,10 +7,11 @@ import json
 from pathlib import Path
 import tempfile
 import time
+from urllib.parse import quote
 import urllib.request
 import uuid
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -87,6 +88,37 @@ def _save_upload_to_temp_file(upload: UploadFile) -> Path:
         return Path(temp_file.name)
 
 
+def _build_tts_audio_url(tts_output: str | None) -> str | None:
+    """Builds one local API URL that streams the generated TTS audio file."""
+
+    if not tts_output:
+        return None
+    return f"/v1/tts-audio?path={quote(tts_output, safe='')}"
+
+
+def _attach_tts_audio_url(result: PipelineResult) -> PipelineResult:
+    """Adds one browser-playable TTS audio URL to the pipeline result when available."""
+
+    return result.model_copy(update={"tts_audio_url": _build_tts_audio_url(result.tts_output)})
+
+
+def _resolve_tts_audio_path(raw_path: str) -> Path:
+    """Validates that the requested TTS file stays within the local temp directory."""
+
+    candidate = Path(raw_path).expanduser().resolve()
+    temp_dir = Path(tempfile.gettempdir()).resolve()
+    allowed_suffixes = {".aiff", ".aif", ".wav", ".m4a"}
+
+    if temp_dir not in candidate.parents:
+        raise HTTPException(status_code=400, detail="TTS audio path must stay inside the temp directory.")
+    if candidate.suffix.lower() not in allowed_suffixes:
+        raise HTTPException(status_code=400, detail="Unsupported TTS audio file type.")
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="TTS audio file not found.")
+
+    return candidate
+
+
 @app.get("/", response_class=FileResponse)
 def index() -> FileResponse:
     """Serves the minimal recording UI used for Phase 1 validation."""
@@ -99,6 +131,14 @@ def health_check() -> dict[str, str]:
     """Provides a simple readiness probe for local development."""
 
     return {"status": "ok"}
+
+
+@app.get("/v1/tts-audio", response_class=FileResponse)
+def get_tts_audio(path: str = Query(..., description="Absolute path of the generated local TTS audio file.")) -> FileResponse:
+    """Streams one generated local TTS audio file back to the browser."""
+
+    tts_audio_path = _resolve_tts_audio_path(path)
+    return FileResponse(tts_audio_path)
 
 
 @app.get("/v1/samples", response_model=list[SampleRecord])
@@ -114,12 +154,13 @@ def process_audio(request: ProcessAudioRequest) -> PipelineResult:
     """Runs the full Phase 1 loop for a local audio file."""
 
     try:
-        return run_pipeline(
+        result = run_pipeline(
             audio_path=request.audio_path,
             mode=request.mode,
             speak_reply=request.speak_reply,
             settings=get_settings(),
         )
+        return _attach_tts_audio_url(result)
     except LLMRequestError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -184,7 +225,7 @@ def process_uploaded_audio(
                 trace_id,
             )
             # #endregion
-            return result
+            return _attach_tts_audio_url(result)
         except LLMRequestError as exc:
             # #region debug-point B:upload-llm-error
             _report_debug_event(

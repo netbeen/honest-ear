@@ -55,6 +55,13 @@ def _build_pipeline_result(audio_path: Path) -> PipelineResult:
     )
 
 
+def _build_pipeline_result_with_tts(audio_path: Path, tts_output: Path) -> PipelineResult:
+    """Builds one deterministic pipeline result that includes a generated TTS file path."""
+
+    result = _build_pipeline_result(audio_path)
+    return result.model_copy(update={"tts_output": str(tts_output)})
+
+
 def _build_wav_bytes() -> bytes:
     """Builds a tiny valid wav payload so the upload route receives realistic audio input."""
 
@@ -100,3 +107,42 @@ def test_process_upload_returns_pipeline_result(monkeypatch) -> None:
     assert body["faithful_asr"]["text"] == "he dont like coffee"
     assert body["intended_asr"]["text"] == "he doesn't like coffee"
     assert body["llm"]["reply"] == "He probably doesn't like the coffee."
+
+
+def test_process_upload_exposes_tts_audio_url(monkeypatch, tmp_path: Path) -> None:
+    """Ensures upload responses expose a browser-playable TTS URL when audio exists."""
+
+    tts_output = tmp_path / "honest-ear-reply.aiff"
+    tts_output.write_bytes(b"FORMmock")
+
+    def _fake_run_pipeline(audio_path: Path, mode: str, speak_reply: bool, settings, trace_id=None):
+        """Returns one deterministic pipeline result with a generated TTS file path."""
+
+        _ = (mode, speak_reply, settings, trace_id)
+        return _build_pipeline_result_with_tts(audio_path, tts_output)
+
+    monkeypatch.setattr("honest_ear.api.run_pipeline", _fake_run_pipeline)
+
+    response = client.post(
+        "/v1/process-upload",
+        files={"audio": ("recording.wav", _build_wav_bytes(), "audio/wav")},
+        data={"mode": "accuracy", "speak_reply": "true"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tts_output"] == str(tts_output)
+    assert body["tts_audio_url"].startswith("/v1/tts-audio?path=")
+
+
+def test_tts_audio_endpoint_streams_temp_file() -> None:
+    """Ensures generated temp TTS audio files can be streamed back to the browser."""
+
+    with NamedTemporaryFile(suffix=".aiff", delete=False) as temp_file:
+        temp_file.write(b"FORMmock")
+        temp_path = Path(temp_file.name)
+
+    response = client.get("/v1/tts-audio", params={"path": str(temp_path)})
+
+    assert response.status_code == 200
+    assert response.content == b"FORMmock"

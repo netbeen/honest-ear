@@ -88,6 +88,7 @@ def test_request_correction_uses_ark_sdk_backend(monkeypatch) -> None:
     monkeypatch.setattr("honest_ear.llm._request_correction_via_ark_sdk", _fake_ark_sdk)
 
     settings = Settings(
+        llm_backend="ark_sdk",
         ark_base_url="https://ark-cn-beijing.bytedance.net/api/v3",
         ark_api_key="demo",
         ark_model="ep-demo",
@@ -139,6 +140,7 @@ def test_request_correction_propagates_ark_sdk_failure(monkeypatch) -> None:
     monkeypatch.setattr("honest_ear.llm._request_correction_via_ark_sdk", _fake_ark_sdk)
 
     settings = Settings(
+        llm_backend="ark_sdk",
         ark_base_url="https://ark-cn-beijing.bytedance.net/api/v3",
         ark_api_key="demo",
         ark_model="ep-demo",
