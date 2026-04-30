@@ -1,4 +1,4 @@
-"""Tests for Ark SDK-based LLM requests and response parsing."""
+"""Tests for Ark SDK and LM Studio based LLM requests and response parsing."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from honest_ear.llm import (
     LLMRequestError,
     _extract_chat_completion_content,
     _request_correction_via_ark_sdk,
+    _request_correction_via_lm_studio,
     request_correction,
 )
 from honest_ear.schemas import CorrectionResponse, DiffSpan, FusionResult
@@ -94,6 +95,36 @@ def test_request_correction_uses_ark_sdk_backend(monkeypatch) -> None:
     result = request_correction(_build_fusion_result(), "accuracy", settings)
 
     assert result.reply == "ark"
+
+
+def test_request_correction_uses_lm_studio_backend(monkeypatch) -> None:
+    """Ensures request_correction delegates to LM Studio when configured."""
+
+    def _fake_lm_studio(fusion: FusionResult, mode: str, _settings: Settings):
+        """Returns a deterministic correction response for backend selection tests."""
+
+        _ = _settings
+        return CorrectionResponse(
+            reply="lm_studio",
+            should_show_correction=True,
+            corrections=[],
+            faithful_text=fusion.faithful_text,
+            intended_text=fusion.intended_text,
+            naturalness_score=86,
+            mode=mode,
+            meta={"decision_reason": "lm_studio"},
+        )
+
+    monkeypatch.setattr("honest_ear.llm._request_correction_via_lm_studio", _fake_lm_studio)
+
+    settings = Settings(
+        llm_backend="lm_studio",
+        lm_studio_base_url="http://127.0.0.1:1234/v1",
+        lm_studio_model="qwen/qwen3.5-35b-a3b",
+    )
+    result = request_correction(_build_fusion_result(), "accuracy", settings)
+
+    assert result.reply == "lm_studio"
 
 
 def test_request_correction_propagates_ark_sdk_failure(monkeypatch) -> None:
@@ -198,6 +229,70 @@ def test_ark_sdk_request_sends_reasoning_effort(monkeypatch) -> None:
     assert captured_request["stream"] is False
     assert captured_request["response_format"] == {"type": "json_object"}
 
+
+def test_lm_studio_request_omits_json_object_response_format(monkeypatch) -> None:
+    """Ensures LM Studio uses a compatible OpenAI request shape without json_object mode."""
+
+    captured_request: dict = {}
+
+    class _FakeResponse:
+        """Provides the minimal LM Studio response surface used by the client."""
+
+        def raise_for_status(self) -> None:
+            """Simulates one successful HTTP response."""
+
+        def json(self) -> dict:
+            """Returns one valid OpenAI-compatible JSON payload."""
+
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "reply": "Nice job. What do you want to eat next?",
+                                    "should_show_correction": False,
+                                    "corrections": [],
+                                    "faithful_text": "a",
+                                    "intended_text": "b",
+                                    "naturalness_score": 90,
+                                    "mode": "accuracy",
+                                    "meta": {"decision_reason": "ok"},
+                                }
+                            )
+                        }
+                    }
+                ]
+            }
+
+    def _fake_post(url: str, headers: dict, json: dict, timeout: float) -> _FakeResponse:
+        """Captures one outgoing LM Studio request without making a real HTTP call."""
+
+        captured_request["url"] = url
+        captured_request["headers"] = headers
+        captured_request["json"] = json
+        captured_request["timeout"] = timeout
+        return _FakeResponse()
+
+    monkeypatch.setattr("honest_ear.llm.httpx.post", _fake_post)
+
+    settings = Settings(
+        llm_backend="lm_studio",
+        lm_studio_base_url="http://127.0.0.1:1234/v1",
+        lm_studio_api_key="",
+        lm_studio_model="qwen/qwen3.5-35b-a3b",
+    )
+
+    result = _request_correction_via_lm_studio(_build_fusion_result(), "accuracy", settings)
+
+    assert result.reply.startswith("Nice job.")
+    assert captured_request["url"] == "http://127.0.0.1:1234/v1/chat/completions"
+    assert "Authorization" not in captured_request["headers"]
+    assert captured_request["json"]["stream"] is False
+    assert "response_format" not in captured_request["json"]
+    assert captured_request["json"]["model"] == "qwen/qwen3.5-35b-a3b"
+
+
 def test_ark_sdk_failure_is_wrapped(monkeypatch) -> None:
     """Ensures SDK exceptions are normalized into one LLMRequestError."""
 
@@ -206,6 +301,8 @@ def test_ark_sdk_failure_is_wrapped(monkeypatch) -> None:
 
         def __init__(self, **_kwargs) -> None:
             """Accepts Ark constructor arguments."""
+
+            _ = _kwargs
 
         @property
         def chat(self):
@@ -223,3 +320,26 @@ def test_ark_sdk_failure_is_wrapped(monkeypatch) -> None:
 
     with pytest.raises(LLMRequestError, match="Ark SDK request failed: network timeout"):
         _request_correction_via_ark_sdk(_build_fusion_result(), "accuracy", settings)
+
+
+def test_lm_studio_failure_is_wrapped(monkeypatch) -> None:
+    """Ensures LM Studio HTTP exceptions are normalized into one LLMRequestError."""
+
+    def _fake_post(*_args, **_kwargs):
+        """Raises one deterministic HTTP exception for wrapping tests."""
+
+        _ = (_args, _kwargs)
+        raise httpx.ConnectError("connection refused")
+
+    import httpx
+
+    monkeypatch.setattr("honest_ear.llm.httpx.post", _fake_post)
+
+    settings = Settings(
+        llm_backend="lm_studio",
+        lm_studio_base_url="http://127.0.0.1:1234/v1",
+        lm_studio_model="qwen/qwen3.5-35b-a3b",
+    )
+
+    with pytest.raises(LLMRequestError, match="LM Studio request failed"):
+        _request_correction_via_lm_studio(_build_fusion_result(), "accuracy", settings)

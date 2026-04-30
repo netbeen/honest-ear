@@ -8,7 +8,7 @@ AI 英语口语陪练原型。
 
 - 同一段音频并行跑双通道 ASR
 - 本地做 diff 和置信度融合
-- 调用 Ark 官方 Python SDK 输出结构化纠错结果
+- 调用 Ark 官方 Python SDK 或本地 LM Studio 输出结构化纠错结果
 - 展示忠实文案、理解文案和回复文案
 
 产品目标仍然是 macOS 原生应用，但在 Tauri 壳子尚未搭建完成前，当前版本先提供一个浏览器界面的录音验证页，方便快速测试完整链路。
@@ -25,7 +25,7 @@ AI 英语口语陪练原型。
 - 忠实通道：`wav2vec2`，不接语言模型，尽量保留原始表达
 - 理解通道：`faster-whisper`
 - 融合层：输出 `faithful_text`、`intended_text`、`diff_spans`、`should_correct`
-- LLM 层：使用 Ark 官方 Python SDK，输出结构化 JSON
+- LLM 层：支持 Ark 官方 Python SDK 与本地 LM Studio，输出结构化 JSON
 - 录音页面：长按麦克风开始录音，松开后自动上传分析
 - 页面展示：忠实文案、理解文案、回复文案
 - 样本集：内置 `30` 条测试样本
@@ -39,7 +39,7 @@ src/honest_ear/
   cli.py           CLI 入口
   config.py        环境配置
   fusion.py        本地 diff 和置信度融合
-  llm.py           Ark / OpenAI-compatible LLM 调用
+  llm.py           Ark SDK / LM Studio LLM 调用
   pipeline.py      端到端编排
   samples.py       样本集加载
   schemas.py       结构化数据模型
@@ -62,7 +62,7 @@ scripts/
 
 - macOS
 - Python `3.11+`
-- 使用 Ark 官方 Python SDK 调用 `chat.completions`
+- 支持 Ark 官方 Python SDK 或本地 LM Studio
 - 如需真实本地 ASR，需要安装：
   - `faster-whisper`
   - `transformers`
@@ -85,15 +85,30 @@ cp .env.example .env
 常用 LLM 配置：
 
 ```env
+LLM_BACKEND=ark_sdk
 LLM_REASONING_EFFORT=low
 ARK_BASE_URL=https://ark-cn-beijing.bytedance.net/api/v3
 ARK_API_KEY=your-api-key
 ARK_MODEL=your-endpoint-id
+LM_STUDIO_BASE_URL=http://127.0.0.1:1234/v1
+LM_STUDIO_API_KEY=
+LM_STUDIO_MODEL=qwen/qwen3.5-35b-a3b
 ```
 
-当前项目会直接通过 Ark 官方 Python SDK 调用 `chat.completions.create(...)`。
-- 当前直连 Ark SDK 时，`ARK_MODEL` 应填写真实接入点 ID（如 `ep-...`），而不是内部 `bots` 路径里的模型别名。
-- 在当前验证过的接入点上，`LLM_REASONING_EFFORT=low` 可正常工作，`none` 会被 Ark 直连接口拒绝。
+后端切换说明：
+
+- `LLM_BACKEND=ark_sdk`：使用 Ark 官方 Python SDK 调用 `chat.completions.create(...)`
+- `LLM_BACKEND=lm_studio`：使用本地 `LM Studio` 的 OpenAI-compatible 接口
+
+Ark SDK 说明：
+
+- `ARK_MODEL` 应填写真实接入点 ID（如 `ep-...`），而不是内部 `bots` 路径里的模型别名
+- 在当前验证过的接入点上，`LLM_REASONING_EFFORT=low` 可正常工作，`none` 会被 Ark 直连接口拒绝
+
+LM Studio 说明：
+
+- `LM_STUDIO_MODEL` 填写本地加载的模型名，例如 `qwen/qwen3.5-35b-a3b`
+- 当前 `LM Studio` 不接受 `response_format.type=json_object`，项目已自动使用更兼容的请求形态
 
 ## 模型目录约定
 

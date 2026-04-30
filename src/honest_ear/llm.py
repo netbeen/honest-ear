@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 
+import httpx
 from pydantic import ValidationError
 from volcenginesdkarkruntime import Ark  # pyright: ignore[reportMissingImports]
 
@@ -111,6 +112,29 @@ def _extract_chat_completion_content(response) -> str:
     return content
 
 
+def _build_request_headers(api_key: str) -> dict[str, str]:
+    """Builds JSON request headers and only sends auth when explicitly configured."""
+
+    headers = {"Content-Type": "application/json"}
+    if api_key.strip():
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+def _extract_openai_chat_content(response: httpx.Response) -> str:
+    """Extracts assistant content from one OpenAI-compatible JSON response."""
+
+    payload = response.json()
+    choices = payload.get("choices", [])
+    if not choices:
+        raise ValueError("LM Studio response does not contain choices.")
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("LM Studio response does not contain assistant text content.")
+    return content
+
+
 def _request_correction_via_ark_sdk(fusion: FusionResult, mode: str, settings: Settings) -> CorrectionResponse:
     """Calls Ark chat completions via the official Python SDK and validates the JSON output."""
 
@@ -147,7 +171,53 @@ def _request_correction_via_ark_sdk(fusion: FusionResult, mode: str, settings: S
         raise LLMRequestError(f"Ark SDK returned invalid response payload: {exc}") from exc
 
 
-def request_correction(fusion: FusionResult, mode: str, settings: Settings) -> CorrectionResponse:
-    """Calls the Ark SDK backend and validates the structured JSON output."""
+def _request_correction_via_lm_studio(fusion: FusionResult, mode: str, settings: Settings) -> CorrectionResponse:
+    """Calls one LM Studio OpenAI-compatible endpoint and validates the JSON output."""
 
+    prompt = build_correction_prompt(fusion, mode)
+    payload = {
+        "model": settings.lm_studio_model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a careful English speaking coach. Output JSON only.",
+            },
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ],
+        "stream": False,
+        "temperature": 0.2,
+    }
+
+    try:
+        response = httpx.post(
+            f"{settings.lm_studio_base_url.rstrip('/')}/chat/completions",
+            headers=_build_request_headers(settings.lm_studio_api_key),
+            json=payload,
+            timeout=180.0,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        response_text = exc.response.text.strip()
+        raise LLMRequestError(
+            f"LM Studio request failed with status {exc.response.status_code}: {response_text}"
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise LLMRequestError(f"LM Studio request failed: {exc}") from exc
+
+    try:
+        raw_content = _extract_openai_chat_content(response)
+        parsed = _extract_json_object(raw_content)
+        return CorrectionResponse.model_validate(parsed)
+    except (ValueError, KeyError, json.JSONDecodeError, ValidationError) as exc:
+        raise LLMRequestError(f"LM Studio returned invalid response payload: {exc}") from exc
+
+
+def request_correction(fusion: FusionResult, mode: str, settings: Settings) -> CorrectionResponse:
+    """Calls the configured LLM backend and validates the structured JSON output."""
+
+    if settings.llm_backend == "lm_studio":
+        return _request_correction_via_lm_studio(fusion, mode, settings)
     return _request_correction_via_ark_sdk(fusion, mode, settings)

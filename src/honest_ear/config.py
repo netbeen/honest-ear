@@ -18,10 +18,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 class Settings:
     """Stores environment-driven settings for the Phase 1 pipeline."""
 
+    llm_backend: str = os.getenv("LLM_BACKEND", "ark_sdk")
     llm_reasoning_effort: str = os.getenv("LLM_REASONING_EFFORT", "none")
     ark_base_url: str = os.getenv("ARK_BASE_URL", "https://ark-cn-beijing.bytedance.net/api/v3")
     ark_api_key: str = os.getenv("ARK_API_KEY", "")
     ark_model: str = os.getenv("ARK_MODEL", "")
+    lm_studio_base_url: str = os.getenv("LM_STUDIO_BASE_URL", "http://127.0.0.1:1234/v1")
+    lm_studio_api_key: str = os.getenv("LM_STUDIO_API_KEY", "")
+    lm_studio_model: str = os.getenv("LM_STUDIO_MODEL", "")
     correction_mode: str = os.getenv("HONEST_EAR_MODE", "accuracy")
     faithful_confidence_threshold: float = float(
         os.getenv("HONEST_EAR_FAITHFUL_CONFIDENCE_THRESHOLD", "0.58")
